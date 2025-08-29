@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { getInvoicesByCustomer, deleteInvoice, updateInvoice } from '../../services/api';
 import { logout, getUserData } from '../../utils/auth';
+import EditInvoiceModal from './EditInvoiceModal'; // Add this import
 import styles from './InvoiceDetail.module.css';
 
 const InvoiceDetail = () => {
@@ -9,6 +10,7 @@ const InvoiceDetail = () => {
     const [products, setProducts] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
+    const [editModalOpen, setEditModalOpen] = useState(false); // Add modal state
     const navigate = useNavigate();
     const { invoiceId } = useParams();
     const location = useLocation();
@@ -94,30 +96,38 @@ useEffect(() => {
         }
     };
 
-    const handleEditInvoice = async () => {
-        const newCustomerName = prompt('Enter new customer name:', invoice.customerName);
-        const newCustomerEmail = prompt('Enter new customer email:', invoice.customerEmail);
-        
-        if (newCustomerName && newCustomerEmail) {
-            try {
-                const result = await updateInvoice(
-                    invoice.id,
-                    newCustomerName,
-                    newCustomerEmail,
-                    products
-                );
-                
-                if (result.success) {
-                    alert('Invoice updated successfully!');
-                    setInvoice({ ...invoice, customerName: newCustomerName, customerEmail: newCustomerEmail });
-                } else {
-                    alert(result.message || 'Failed to update invoice');
-                }
-            } catch (error) {
-                console.error('Error updating invoice:', error);
-                alert('An error occurred while updating invoice');
+    // Updated edit handler to open modal instead of using prompts
+    const handleEditInvoice = () => {
+        setEditModalOpen(true);
+    };
+
+    // Modal save handler
+    const handleModalSave = async (invoiceId, customerName, customerEmail, updatedProducts) => {
+        try {
+            const result = await updateInvoice(invoiceId, customerName, customerEmail, updatedProducts);
+            
+            if (result.success) {
+                alert('Invoice updated successfully!');
+                setEditModalOpen(false);
+                // Update local state with new data
+                setInvoice({ 
+                    ...invoice, 
+                    customerName: customerName, 
+                    customerEmail: customerEmail 
+                });
+                setProducts(updatedProducts);
+            } else {
+                alert(result.message || 'Failed to update invoice');
             }
+        } catch (error) {
+            console.error('Error updating invoice:', error);
+            alert('An error occurred while updating invoice');
         }
+    };
+
+    // Modal close handler
+    const handleModalClose = () => {
+        setEditModalOpen(false);
     };
 
     const handleLogout = () => {
@@ -125,26 +135,43 @@ useEffect(() => {
         navigate('/login');
     };
 
-    const formatDate = (dateArray) => {
-        if (!dateArray || !Array.isArray(dateArray)) return 'N/A';
-        try {
-            const [year, month, day, hour, minute, second] = dateArray;
-            const date = new Date(year, month - 1, day, hour, minute, second);
-            
-            if (isNaN(date.getTime())) return 'N/A';
-            
-            return date.toLocaleDateString('en-US', {
-                year: 'numeric',
-                month: 'long',
-                day: 'numeric',
-                hour: '2-digit',
-                minute: '2-digit'
-            });
-        } catch (error) {
-            console.error('Date formatting error:', error);
+const formatDate = (dateValue) => {
+    if (!dateValue) return 'N/A';
+    
+    try {
+        let date;
+        
+        // Handle different date formats from backend
+        if (Array.isArray(dateValue)) {
+            // Handle array format [year, month, day, hour, minute, second, nanoseconds?]
+            const [year, month, day, hour = 0, minute = 0, second = 0] = dateValue;
+            date = new Date(year, month - 1, day, hour, minute, second);
+        } else if (typeof dateValue === 'string') {
+            // Handle ISO string format
+            date = new Date(dateValue);
+        } else if (typeof dateValue === 'number') {
+            // Handle timestamp
+            date = new Date(dateValue);
+        } else {
             return 'N/A';
         }
-    };
+        
+        if (isNaN(date.getTime())) return 'N/A';
+        
+        // Use toLocaleString instead of toLocaleDateString to include time
+        return date.toLocaleString('en-US', {
+            year: 'numeric',
+            month: 'short',
+            day: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: true  // Use 12-hour format with AM/PM
+        });
+    } catch (error) {
+        console.error('Date formatting error:', error, 'Input:', dateValue);
+        return 'N/A';
+    }
+};
 
     if (loading) {
         return (
@@ -336,6 +363,14 @@ useEffect(() => {
                     </div>
                 </div>
             </div>
+
+            {/* Edit Modal */}
+            <EditInvoiceModal
+                isOpen={editModalOpen}
+                onClose={handleModalClose}
+                invoice={{ ...invoice, products }}
+                onSave={handleModalSave}
+            />
         </div>
     );
 };

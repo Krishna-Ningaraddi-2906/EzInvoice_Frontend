@@ -2,12 +2,15 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { getAllInvoices, deleteInvoice, updateInvoice } from '../../services/api';
 import { logout, getUserData } from '../../utils/auth';
+import EditInvoiceModal from './EditInvoiceModal'; // Import the modal
 import styles from './InvoiceHistory.module.css';
 
 const InvoiceHistory = () => {
     const [invoices, setInvoices] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
+    const [editModalOpen, setEditModalOpen] = useState(false); // Modal state
+    const [selectedInvoice, setSelectedInvoice] = useState(null); // Selected invoice for editing
     const navigate = useNavigate();
     const userData = getUserData();
 
@@ -58,31 +61,36 @@ const InvoiceHistory = () => {
         }
     };
 
-    const handleEditInvoice = async (e, invoice) => {
+    // Updated edit handler to use modal
+    const handleEditInvoice = (e, invoice) => {
         e.stopPropagation(); // Prevent card click
-        const newCustomerName = prompt('Enter new customer name:', invoice.customerName);
-        const newCustomerEmail = prompt('Enter new customer email:', invoice.customerEmail);
-        
-        if (newCustomerName && newCustomerEmail) {
-            try {
-                const result = await updateInvoice(
-                    invoice.id,
-                    newCustomerName,
-                    newCustomerEmail,
-                    []
-                );
-                
-                if (result.success) {
-                    alert('Invoice updated successfully!');
-                    fetchInvoices();
-                } else {
-                    alert(result.message || 'Failed to update invoice');
-                }
-            } catch (error) {
-                console.error('Error updating invoice:', error);
-                alert('An error occurred while updating invoice');
+        setSelectedInvoice(invoice);
+        setEditModalOpen(true);
+    };
+
+    // Modal save handler
+    const handleModalSave = async (invoiceId, customerName, customerEmail, products) => {
+        try {
+            const result = await updateInvoice(invoiceId, customerName, customerEmail, products);
+            
+            if (result.success) {
+                alert('Invoice updated successfully!');
+                setEditModalOpen(false);
+                setSelectedInvoice(null);
+                fetchInvoices(); // Refresh the invoice list
+            } else {
+                alert(result.message || 'Failed to update invoice');
             }
+        } catch (error) {
+            console.error('Error updating invoice:', error);
+            alert('An error occurred while updating invoice');
         }
+    };
+
+    // Modal close handler
+    const handleModalClose = () => {
+        setEditModalOpen(false);
+        setSelectedInvoice(null);
     };
 
     const handleLogout = () => {
@@ -90,21 +98,40 @@ const InvoiceHistory = () => {
         navigate('/login');
     };
 
-    const formatDate = (dateArray) => {
-        if (!dateArray || !Array.isArray(dateArray)) return 'N/A';
+    const formatDate = (dateValue) => {
+        if (!dateValue) return 'N/A';
+        
         try {
-            const [year, month, day, hour, minute, second] = dateArray;
-            const date = new Date(year, month - 1, day, hour, minute, second);
+            let date;
+            
+            // Handle different date formats from backend
+            if (Array.isArray(dateValue)) {
+                // Handle array format [year, month, day, hour, minute, second, nanoseconds?]
+                const [year, month, day, hour = 0, minute = 0, second = 0] = dateValue;
+                date = new Date(year, month - 1, day, hour, minute, second);
+            } else if (typeof dateValue === 'string') {
+                // Handle ISO string format
+                date = new Date(dateValue);
+            } else if (typeof dateValue === 'number') {
+                // Handle timestamp
+                date = new Date(dateValue);
+            } else {
+                return 'N/A';
+            }
             
             if (isNaN(date.getTime())) return 'N/A';
             
-            return date.toLocaleDateString('en-US', {
+            // Use toLocaleString instead of toLocaleDateString to include time
+            return date.toLocaleString('en-US', {
                 year: 'numeric',
                 month: 'short',
-                day: 'numeric'
+                day: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit',
+                hour12: true  // Use 12-hour format with AM/PM
             });
         } catch (error) {
-            console.error('Date formatting error:', error);
+            console.error('Date formatting error:', error, 'Input:', dateValue);
             return 'N/A';
         }
     };
@@ -260,6 +287,14 @@ const InvoiceHistory = () => {
                     </div>
                 )}
             </div>
+
+            {/* Edit Modal */}
+            <EditInvoiceModal
+                isOpen={editModalOpen}
+                onClose={handleModalClose}
+                invoice={selectedInvoice}
+                onSave={handleModalSave}
+            />
         </div>
     );
 };

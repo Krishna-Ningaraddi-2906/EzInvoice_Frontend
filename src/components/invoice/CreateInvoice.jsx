@@ -7,6 +7,7 @@ import styles from './CreateInvoice.module.css';
 const CreateInvoice = () => {
     const [customerName, setCustomerName] = useState('');
     const [customerEmail, setCustomerEmail] = useState('');
+    const [companyOrIndividual, setCompanyOrIndividual] = useState('Individual');
     const [products, setProducts] = useState([
         { productName: '', price: '', quantity: 1, total: 0 }
     ]);
@@ -90,7 +91,13 @@ const CreateInvoice = () => {
         setMessage('');
 
         try {
-            const result = await createInvoice(customerName, customerEmail, validProducts);
+            // Make sure products have calculated totals
+            const productsWithTotals = validProducts.map(product => ({
+                ...product,
+                total: calculateProductTotal(product.price, product.quantity)
+            }));
+
+            const result = await createInvoice(customerName, customerEmail, productsWithTotals, companyOrIndividual);
 
             if (result.success) {
                 setMessage('Invoice created successfully!');
@@ -99,6 +106,7 @@ const CreateInvoice = () => {
                 setTimeout(() => {
                     setCustomerName('');
                     setCustomerEmail('');
+                    setCompanyOrIndividual('Individual');
                     setProducts([{ productName: '', price: '', quantity: 1, total: 0 }]);
                     setMessage('');
                 }, 2000);
@@ -201,6 +209,23 @@ const CreateInvoice = () => {
                                 disabled={loading}
                                 className={styles.formInput}
                             />
+                        </div>
+
+                        {/* Customer Type Dropdown */}
+                        <div className={styles.formGroup}>
+                            <label htmlFor="companyOrIndividual" className={styles.formLabel}>
+                                🏢 Customer Type
+                            </label>
+                            <select
+                                id="companyOrIndividual"
+                                value={companyOrIndividual}
+                                onChange={(e) => setCompanyOrIndividual(e.target.value)}
+                                disabled={loading}
+                                className={styles.formInput}
+                            >
+                                <option value="Individual">Individual</option>
+                                <option value="Company">Company</option>
+                            </select>
                         </div>
 
                         {/* Products Section */}
@@ -306,6 +331,12 @@ const CreateInvoice = () => {
                                     <strong>Email: </strong>{customerEmail}
                                 </p>
                             )}
+                            <p className={styles.customerInfo}>
+                                <strong>Type: </strong>
+                                <span className={companyOrIndividual.toLowerCase() === 'company' ? styles.company : styles.individual}>
+                                    {companyOrIndividual}
+                                </span>
+                            </p>
                             {products.filter(p => p.productName).length > 0 && (
                                 <div className={styles.productsSection}>
                                     <h4 className={styles.productsTitle}>Products:</h4>

@@ -12,7 +12,7 @@ const ENDPOINTS = {
     DELETE_INVOICE: `${API_BASE_URL}/invoice/delete`
 };
 
-// Signup API call
+// Signup API call - FIXED VERSION
 export const signupUser = async (userData, logoFile) => {
     try {
         console.log('Sending signup request to:', ENDPOINTS.SIGNUP);
@@ -20,8 +20,11 @@ export const signupUser = async (userData, logoFile) => {
         
         const formData = new FormData();
         
-        // Add user data as JSON string
-        formData.append('user', JSON.stringify(userData));
+        // Add user data as a JSON blob with correct Content-Type
+        const userBlob = new Blob([JSON.stringify(userData)], {
+            type: 'application/json'
+        });
+        formData.append('user', userBlob);
         
         // Add logo file if provided
         if (logoFile) {
@@ -32,6 +35,7 @@ export const signupUser = async (userData, logoFile) => {
         const response = await fetch(ENDPOINTS.SIGNUP, {
             method: 'POST',
             body: formData
+            // Don't set Content-Type header - let browser set it automatically for multipart/form-data
         });
         
         console.log('Signup response status:', response.status);
@@ -42,9 +46,9 @@ export const signupUser = async (userData, logoFile) => {
             throw new Error(`HTTP error! status: ${response.status}, message: ${errorText}`);
         }
         
-        const result = await response.text(); // Assuming backend returns text response
+        const result = await response.json(); // Parse as JSON since backend returns JSON
         console.log('Signup success response:', result);
-        return { success: true, message: result };
+        return { success: true, message: result.message || 'Signup successful!' };
         
     } catch (error) {
         console.error('Signup error:', error);
@@ -105,46 +109,50 @@ const getAuthHeaders = () => {
 };
 
 // Create Invoice
-export const createInvoice = async (customerName, customerEmail, products) => {
+export const createInvoice = async (customerName, customerEmail, products, companyOrIndividual = 'Individual') => {
   try {
     console.log("=== CREATE INVOICE DEBUG START ===");
     console.log("customerName:", customerName);
     console.log("customerEmail:", customerEmail);
+    console.log("companyOrIndividual:", companyOrIndividual);
     console.log("products received:", products);
 
-    // Since your backend only handles one product at a time, 
-    // we'll send the first product only for now
-    const firstProduct = products[0];
-    
-    if (!firstProduct) {
+    if (!products || products.length === 0) {
       throw new Error("No products provided");
     }
 
-    // Match your backend DTO structure exactly - only fields that exist in your DTOs
+    // Calculate total amount from all products
+    const totalAmount = products.reduce((sum, product) => {
+      const price = parseFloat(product.price) || 0;
+      const quantity = parseInt(product.quantity) || 0;
+      return sum + (price * quantity);
+    }, 0);
+
+    // Prepare products data
+    const productsData = products.map(product => ({
+      productName: product.productName,
+      price: String(product.price || 0),
+      quantity: String(product.quantity || 1)
+    }));
+
     const invoiceData = {
       createInvoiceDto: {
         customerName,
         customerEmail,
-        companyOrIndividual: "Individual" // Only include fields that exist in your CreateInvoiceDto
+        companyOrIndividual: companyOrIndividual,
+        totalAmount: totalAmount,
+        invoiceDate: new Date().toISOString().split('T')[0]
       },
-      addProductsDto: {
-        productName: firstProduct.productName || firstProduct.name,
-        price: String(firstProduct.price || 0), // Convert to String as backend expects
-        quantity: String(firstProduct.quantity || 1) // Convert to String as backend expects
-      }
+      addProductsDto: productsData
     };
 
     console.log("Final payload to send:", JSON.stringify(invoiceData, null, 2));
-    console.log("Request URL:", ENDPOINTS.CREATE_INVOICE);
 
     const response = await fetch(ENDPOINTS.CREATE_INVOICE, {
       method: "POST",
       headers: getAuthHeaders(),
       body: JSON.stringify(invoiceData),
     });
-
-    console.log("Response status:", response.status);
-    console.log("Response ok:", response.ok);
 
     if (!response.ok) {
       const errorText = await response.text();
@@ -160,16 +168,12 @@ export const createInvoice = async (customerName, customerEmail, products) => {
       throw new Error(`HTTP error! status: ${response.status}, message: ${errorText}`);
     }
 
-    const result = await response.text(); // Your backend returns text, not JSON
+    const result = await response.text();
     console.log("Success response:", result);
-    console.log("=== CREATE INVOICE DEBUG END ===");
 
     return { success: true, message: "Invoice created successfully", data: result };
   } catch (error) {
-    console.error("=== CREATE INVOICE ERROR ===");
-    console.error("Error message:", error.message);
-    console.error("=== CREATE INVOICE ERROR END ===");
-    
+    console.error("=== CREATE INVOICE ERROR ===", error);
     return {
       success: false,
       message: error.message || "Failed to create invoice. Please try again.",
@@ -265,37 +269,56 @@ export const getInvoicesByCustomer = async (customerEmail) => {
 // Update Invoice
 export const updateInvoice = async (invoiceId, customerName, customerEmail, products) => {
     try {
-        console.log('Preparing updated invoice data...');
+        console.log('=== UPDATE INVOICE DEBUG START ===');
+        console.log('invoiceId:', invoiceId);
+        console.log('customerName:', customerName);
+        console.log('customerEmail:', customerEmail);
+        console.log('products received:', products);
         
-        // Transform products data
+        if (!products || products.length === 0) {
+            throw new Error("No products provided");
+        }
+
+        // Calculate total amount from all products
+        const totalAmount = products.reduce((sum, product) => {
+            const price = parseFloat(product.price) || 0;
+            const quantity = parseInt(product.quantity) || 0;
+            return sum + (price * quantity);
+        }, 0);
+
+        // Keep products as strings to match backend DTO expectations
         const transformedProducts = products.map(product => ({
-            productName: product.productName || product.name,
-            price: parseFloat(product.price) || 0,
-            quantity: parseInt(product.quantity) || 1,
-            totalAmount: parseFloat(product.totalAmount) || (parseFloat(product.price || 0) * parseInt(product.quantity || 1))
+            productName: product.productName || '',
+            price: String(product.price || '0'),      // Keep as String
+            quantity: String(product.quantity || '1') // Keep as String
         }));
-        
-        const totalInvoiceAmount = transformedProducts.reduce((sum, product) => sum + product.totalAmount, 0);
-        
+
         const invoiceData = {
             createInvoiceDto: {
                 customerName: customerName,
                 customerEmail: customerEmail,
-                totalAmount: totalInvoiceAmount,
-                invoiceDate: new Date().toISOString().split('T')[0],
+                companyOrIndividual: "Individual", // Add this field
+                totalAmount: totalAmount,
+                invoiceDate: new Date().toISOString().split('T')[0]
             },
-            addProductsDto: transformedProducts
+            addProductsDto: transformedProducts // Array of products with String types
         };
-        
-        console.log('Sending update invoice request to:', `${ENDPOINTS.UPDATE_INVOICE}/${invoiceId}`);
+
+        console.log('Final payload to send:', JSON.stringify(invoiceData, null, 2));
+        console.log('Request URL:', `${ENDPOINTS.UPDATE_INVOICE}/${invoiceId}`);
         
         const response = await fetch(`${ENDPOINTS.UPDATE_INVOICE}/${invoiceId}`, {
             method: 'PUT',
             headers: getAuthHeaders(),
             body: JSON.stringify(invoiceData)
         });
+
+        console.log('Response status:', response.status);
         
         if (!response.ok) {
+            const errorText = await response.text();
+            console.error('Error response:', errorText);
+            
             if (response.status === 401) {
                 throw new Error('Authentication failed. Please login again.');
             }
@@ -303,15 +326,19 @@ export const updateInvoice = async (invoiceId, customerName, customerEmail, prod
                 throw new Error('Invoice not found or access denied.');
             }
             
-            const errorText = await response.text();
             throw new Error(`HTTP error! status: ${response.status}, message: ${errorText}`);
         }
         
         const result = await response.text();
+        console.log('Success response:', result);
+        console.log('=== UPDATE INVOICE DEBUG END ===');
+        
         return { success: true, message: result };
         
     } catch (error) {
-        console.error('Update invoice error:', error);
+        console.error('=== UPDATE INVOICE ERROR ===');
+        console.error('Error message:', error.message);
+        console.error('=== UPDATE INVOICE ERROR END ===');
         return { 
             success: false, 
             message: error.message || 'Failed to update invoice. Please try again.' 
